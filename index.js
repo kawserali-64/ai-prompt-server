@@ -31,21 +31,37 @@ async function run() {
         // Connect the client to the server	(optional starting in v4.7)
         await client.connect();
 
+
+
         const database = client.db("ai_promt_client")
         const prompts = database.collection("prompts");
 
-        app.post('/prompts', async (req, res) => {
+        app.get("/api/prompts", async (req, res) => {
+            const query = {}
+            if(req.query.userId){
+                query.userId = req.query.userId;    
+            }
+            const cursor = prompts.find(query);
+             const result = await cursor.toArray()
+             res.send(result)
+        });
+
+
+
+        app.post('/api/prompts', async (req, res) => {
             const prompt = req.body;
             const result = await prompts.insertOne(prompt);
             res.send(result)
-    })
+        })
+
+
 
         // Send a ping to confirm a successful connection
         await client.db("admin").command({ ping: 1 });
         console.log("Pinged your deployment. You successfully connected to MongoDB!");
     } finally {
         // Ensures that the client will close when you finish/error
-        await client.close();
+        // await client.close();
     }
 }
 run().catch(console.dir);
