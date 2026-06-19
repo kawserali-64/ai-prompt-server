@@ -35,24 +35,42 @@ async function run() {
 
         const database = client.db("ai_promt_client")
         const prompts = database.collection("prompts");
+        
 
         app.get("/api/prompts", async (req, res) => {
-            const query = {}
-            if(req.query.userId){
-                query.userId = req.query.userId;    
+            const query = {};
+
+            if (req.query.userId) {
+                query.userId = req.query.userId;
             }
-            const cursor = prompts.find(query);
-             const result = await cursor.toArray()
-             res.send(result)
+
+            const result = await prompts
+                .find(query)
+                .sort({ createdAt: -1 })
+                .toArray();
+
+            res.send(result);
         });
 
 
 
-        app.post('/api/prompts', async (req, res) => {
+        app.post("/api/prompts", async (req, res) => {
             const prompt = req.body;
-            const result = await prompts.insertOne(prompt);
-            res.send(result)
-        })
+
+            const newPrompt = {
+                ...prompt,
+                copyCount: 0,
+                averageRating: 0,
+                totalReviews: 0,
+                totalBookmarks: 0,
+                status: "pending",
+                createdAt: new Date(),
+                updatedAt: new Date(),
+            };
+
+            const result = await prompts.insertOne(newPrompt);
+            res.send(result);
+        });
 
 
 
