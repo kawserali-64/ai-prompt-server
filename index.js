@@ -62,6 +62,51 @@ async function run() {
             res.send(result)
         })
         // get reviews api
+        app.get("/api/review", async (req, res) => {
+
+            try {
+
+                const { promptId, userId } = req.query;
+
+                const query = {};
+
+                if (promptId) {
+
+                    query.promptId = promptId;
+
+                }
+
+                if (userId) {
+
+                    query.userId = userId;
+
+                }
+
+                const result = await reviews
+
+                    .find(query)
+
+                    .sort({ createdAt: -1 })
+
+                    .toArray();
+
+                res.send(result);
+
+            } catch (error) {
+
+                console.log(error);
+
+                res.status(500).send({
+
+                    success: false,
+
+                    message: "Failed to fetch reviews",
+
+                });
+
+            }
+
+        });
 
 
         // create review
