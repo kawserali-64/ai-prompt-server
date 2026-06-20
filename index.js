@@ -7,7 +7,7 @@ require('dotenv').config()
 app.use(cors());
 app.use(express.json())
 
-const { MongoClient, ServerApiVersion } = require('mongodb');
+const { MongoClient, ServerApiVersion, ObjectId } = require('mongodb');
 
 app.get('/', (req, res) => {
     res.send('Hello World!');
@@ -35,7 +35,8 @@ async function run() {
 
         const database = client.db("ai_promt_client")
         const prompts = database.collection("prompts");
-        
+        const reviews = database.collection("reviews");
+
 
         app.get("/api/prompts", async (req, res) => {
             const query = {};
@@ -52,6 +53,66 @@ async function run() {
             res.send(result);
         });
 
+        app.get('/api/prompts/:id', async (req, res) => {
+            const id = req.params.id;
+            const query = {
+                _id: new ObjectId(id)
+            }
+            const result = await prompts.findOne(query);
+            res.send(result)
+        })
+        // get reviews api
+        app.get("/api/review", async (req, res) => {
+            try {
+                const { promptId, userId } = req.query;
+
+                const query = {};
+
+                if (promptId) {
+                    query.promptId = promptId;
+                }
+
+                if (userId) {
+                    query.userId = userId;
+                }
+
+                const result = await reviews
+                    .find(query)
+                    .sort({ createdAt: -1 })
+                    .toArray();
+
+                res.send(result);
+            } catch (error) {
+                console.log(error);
+                res.status(500).send({
+                    success: false,
+                    message: "Failed to fetch reviews",
+                });
+            }
+        });
+
+        // create review
+        app.post("/api/review", async (req, res) => {
+            try {
+                const review = req.body;
+
+                const result = await reviews.insertOne({
+                    ...review,
+                    createdAt: new Date(),
+                });
+
+                res.json({
+                    success: true,
+                    data: result,
+                });
+            } catch (error) {
+                console.log(error);
+                res.status(500).json({
+                    success: false,
+                    message: "Server error",
+                });
+            }
+        });
 
 
         app.post("/api/prompts", async (req, res) => {
