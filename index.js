@@ -37,6 +37,29 @@ async function run() {
         const prompts = database.collection("prompts");
         const reviews = database.collection("reviews");
 
+
+        app.get("/api/prompts", async (req, res) => {
+
+            const query = {};
+
+            if (req.query.userId) {
+
+                query.userId = req.query.userId;
+
+            }
+
+            const result = await prompts
+
+                .find(query)
+
+                .sort({ createdAt: -1 })
+
+                .toArray();
+
+            res.send(result);
+
+        });
+
         // /api/prompts
         app.get("/api/prompts", async (req, res) => {
             const query = {};
