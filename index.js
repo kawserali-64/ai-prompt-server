@@ -1,47 +1,46 @@
-const express = require('express');
-const cors = require('cors');
+const express = require("express");
+const cors = require("cors");
+const dotenv = require("dotenv");
+const { MongoClient, ServerApiVersion, ObjectId } = require("mongodb");
+
+dotenv.config();
+
 const app = express();
 const port = 5000;
-require('dotenv').config()
 
 app.use(cors());
-app.use(express.json())
+app.use(express.json());
 
-const { MongoClient, ServerApiVersion, ObjectId } = require('mongodb');
-
-app.get('/', (req, res) => {
-    res.send('Hello World!');
-});
-
-
-
+// MongoDB Setup
 const uri = process.env.MONGODB_DB_URI;
 
-// Create a MongoClient with a MongoClientOptions object to set the Stable API version
 const client = new MongoClient(uri, {
     serverApi: {
         version: ServerApiVersion.v1,
         strict: true,
         deprecationErrors: true,
-    }
+    },
 });
 
+// MAIN RUN FUNCTION
 async function run() {
     try {
-        // Connect the client to the server	(optional starting in v4.7)
         await client.connect();
 
+        const db = client.db("ai_promt_client");
 
+        const prompts = db.collection("prompts");
+        const reviews = db.collection("reviews");
+        const bookmarks = db.collection("bookmarks");
 
-        const database = client.db("ai_promt_client")
-        const prompts = database.collection("prompts");
-        const reviews = database.collection("reviews");
-        const bookmarks = database.collection("bookmarks");
+        console.log("MongoDB Connected");
 
+        // HEALTH CHECK
+        app.get("/", (req, res) => {
+            res.send("hello world!");
+        });
 
-
-
-        // /api/prompts
+        // GET ALL PROMPTS
         app.get("/api/prompts", async (req, res) => {
             try {
                 const query = {};
@@ -57,19 +56,103 @@ async function run() {
 
                 res.send(result);
             } catch (error) {
-                res.status(500).send({ success: false });
+                res.status(500).send({ success: false, message: error.message });
             }
         });
 
-        app.get('/api/prompts/:id', async (req, res) => {
-            const id = req.params.id;
-            const query = {
-                _id: new ObjectId(id)
+        // GET SINGLE PROMPT
+        app.get("/api/prompts/:id", async (req, res) => {
+            try {
+                const id = req.params.id;
+
+                const result = await prompts.findOne({
+                    _id: new ObjectId(id),
+                });
+
+                res.send(result);
+            } catch (error) {
+                res.status(500).send({ success: false, message: error.message });
             }
-            const result = await prompts.findOne(query);
-            res.send(result)
-        })
-        // get reviews api
+        });
+
+        // CREATE PROMPT
+        app.post("/api/prompts", async (req, res) => {
+            try {
+                const prompt = req.body;
+
+                // user info
+                const userId = prompt.userId;
+                const role = prompt.role;
+                const isPremium = prompt.isPremium;
+
+                // FREE USER LIMIT
+                if (role === "User" && !isPremium) {
+                    const totalPrompts = await prompts.countDocuments({
+                        userId,
+                    });
+
+                    if (totalPrompts >= 3) {
+                        return res.status(403).send({
+                            success: false,
+                            message:
+                                "Free users can only create 3 prompts. Upgrade to Premium.",
+                        });
+                    }
+                }
+
+                // creator = unlimited
+                // premium user = unlimited
+
+                const newPrompt = {
+                    ...prompt,
+                    copyCount: 0,
+                    averageRating: 0,
+                    totalReviews: 0,
+                    totalBookmarks: 0,
+                    status: "pending",
+                    createdAt: new Date(),
+                    updatedAt: new Date(),
+                };
+
+                const result = await prompts.insertOne(newPrompt);
+
+                res.send({
+                    success: true,
+                    insertedId: result.insertedId,
+                });
+            } catch (error) {
+                res.status(500).send({
+                    success: false,
+                    message: error.message,
+                });
+            }
+        });
+
+        // COPY COUNT INCREMENT
+        app.patch("/api/prompts/:id/copy", async (req, res) => {
+            try {
+                const { id } = req.params;
+
+                const result = await prompts.findOneAndUpdate(
+                    { _id: new ObjectId(id) },
+                    { $inc: { copyCount: 1 } },
+                    { returnDocument: "after" }
+                );
+
+                if (!result.value) {
+                    return res.status(404).json({ error: "Prompt not found" });
+                }
+
+                res.json({
+                    success: true,
+                    copyCount: result.value.copyCount,
+                });
+            } catch (err) {
+                res.status(500).json({ success: false, message: err.message });
+            }
+        });
+
+        // REVIEWS GET
         app.get("/api/review", async (req, res) => {
             try {
                 const { promptId, userId } = req.query;
@@ -77,7 +160,7 @@ async function run() {
                 const query = {};
 
                 if (promptId) {
-                    query.promptId = new ObjectId(promptId); // ✅ FIXED
+                    query.promptId = new ObjectId(promptId);
                 }
 
                 if (userId) {
@@ -91,7 +174,6 @@ async function run() {
 
                 res.send(result);
             } catch (error) {
-                console.log(error);
                 res.status(500).send({
                     success: false,
                     message: "Failed to fetch reviews",
@@ -99,47 +181,7 @@ async function run() {
             }
         });
 
-        // bookmark details
-        app.get("/api/bookmarks", async (req, res) => {
-            try {
-                const { userId } = req.query;
-
-                const result = await bookmarks.aggregate([
-                    {
-                        $match: { userId }
-                    },
-                    {
-                        $addFields: {
-                            promptObjId: {
-                                $toObjectId: "$promptId"
-                            }
-                        }
-                    },
-                    {
-                        $lookup: {
-                            from: "prompts",
-                            localField: "promptObjId",
-                            foreignField: "_id",
-                            as: "prompt"
-                        }
-                    },
-                    {
-                        $unwind: "$prompt"
-                    }
-                ]).toArray();
-
-                res.send(result);
-
-            } catch (error) {
-                res.status(500).send({
-                    success: false,
-                    message: error.message
-                });
-            }
-        });
-
-
-        // create review
+        // CREATE REVIEW + UPDATE PROMPT RATING
         app.post("/api/review", async (req, res) => {
             try {
                 const { promptId, rating, comment, userId } = req.body;
@@ -150,7 +192,6 @@ async function run() {
 
                 const objectId = new ObjectId(promptId);
 
-                // 1. insert review
                 await reviews.insertOne({
                     promptId: objectId,
                     rating: Number(rating),
@@ -159,7 +200,6 @@ async function run() {
                     createdAt: new Date(),
                 });
 
-                // 2. fetch all reviews
                 const allReviews = await reviews
                     .find({ promptId: objectId })
                     .toArray();
@@ -172,8 +212,7 @@ async function run() {
                         : allReviews.reduce((acc, r) => acc + Number(r.rating), 0) /
                         totalReviews;
 
-                // 3. UPDATE PROMPT (IMPORTANT DEBUG LOG ADDED)
-                const updateResult = await prompts.updateOne(
+                await prompts.updateOne(
                     { _id: objectId },
                     {
                         $set: {
@@ -183,17 +222,12 @@ async function run() {
                     }
                 );
 
-                console.log("UPDATE RESULT:", updateResult);
-
                 res.json({
                     success: true,
                     averageRating,
                     totalReviews,
-                    matched: updateResult.matchedCount,
-                    modified: updateResult.modifiedCount,
                 });
             } catch (error) {
-                console.log(error);
                 res.status(500).json({
                     success: false,
                     message: error.message,
@@ -201,25 +235,7 @@ async function run() {
             }
         });
 
-        app.post("/api/prompts", async (req, res) => {
-            const prompt = req.body;
-
-            const newPrompt = {
-                ...prompt,
-                copyCount: 0,
-                averageRating: 0,
-                totalReviews: 0,
-                totalBookmarks: 0,
-                status: "pending",
-                createdAt: new Date(),
-                updatedAt: new Date(),
-            };
-
-            const result = await prompts.insertOne(newPrompt);
-            res.send(result);
-        });
-
-        // bookmark api
+        // BOOKMARK TOGGLE
         app.post("/api/bookmarks", async (req, res) => {
             try {
                 const { userId, promptId } = req.body;
@@ -227,7 +243,10 @@ async function run() {
                 const existing = await bookmarks.findOne({ userId, promptId });
 
                 if (existing) {
-                    await bookmarks.deleteOne({ _id: existing._id });
+                    await bookmarks.deleteOne({
+                        userId,
+                        promptId,
+                    });
 
                     await prompts.updateOne(
                         { _id: new ObjectId(promptId) },
@@ -240,7 +259,7 @@ async function run() {
                 await bookmarks.insertOne({
                     userId,
                     promptId,
-                    createdAt: new Date()
+                    createdAt: new Date(),
                 });
 
                 await prompts.updateOne(
@@ -249,52 +268,61 @@ async function run() {
                 );
 
                 res.send({ success: true, saved: true });
-
             } catch (error) {
-                res.status(500).send({ success: false });
+                res.status(500).send({
+                    success: false,
+                    message: error.message,
+                });
             }
         });
 
-
-
-
-
-
-        // patch api
-        app.patch('/api/prompts/:id/copy', async (req, res) => {
+        // GET BOOKMARKS WITH POPULATED PROMPTS
+        app.get("/api/bookmarks", async (req, res) => {
             try {
-                const { id } = req.params
+                const { userId } = req.query;
 
-                const result = await prompts.findOneAndUpdate(
-                    { _id: new ObjectId(id) },
-                    { $inc: { copyCount: 1 } },
-                    { returnDocument: 'after', projection: { copyCount: 1 } }
-                )
+                const result = await bookmarks
+                    .aggregate([
+                        { $match: { userId } },
+                        {
+                            $addFields: {
+                                promptObjId: {
+                                    $toObjectId: "$promptId",
+                                },
+                            },
+                        },
+                        {
+                            $lookup: {
+                                from: "prompts",
+                                localField: "promptObjId",
+                                foreignField: "_id",
+                                as: "prompt",
+                            },
+                        },
+                        { $unwind: "$prompt" },
+                    ])
+                    .toArray();
 
-                if (!result) {
-                    return res.status(404).json({ error: 'Prompt not found' })
-                }
-
-                res.json({ copyCount: result.copyCount })
-            } catch (err) {
-                res.status(500).json({ error: err.message })
+                res.send(result);
+            } catch (error) {
+                res.status(500).send({
+                    success: false,
+                    message: error.message,
+                });
             }
-        })
+        });
 
-
-        // Send a ping to confirm a successful connection
+        // MONGO PING
         await client.db("admin").command({ ping: 1 });
-        console.log("Pinged your deployment. You successfully connected to MongoDB!");
+        console.log("MongoDB Ping Successful");
     } finally {
-        // Ensures that the client will close when you finish/error
-        // await client.close();
+        // keep connection open
     }
 }
+
 run().catch(console.dir);
 
-
-
-
+// SERVER START
 app.listen(port, () => {
-    console.log(`Example app listening on port ${port}`);
+    console.log(`Server running on port ${port}`);
 });
