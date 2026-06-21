@@ -43,12 +43,24 @@ async function run() {
         // GET ALL PROMPTS
         app.get("/api/prompts", async (req, res) => {
             try {
-                const query = {};
+                const { userId } = req.query;
 
-                if (req.query.userId) {
-                    query.userId = req.query.userId;
+                let query = {};
+
+                // MY PROMPTS (USER DASHBOARD)
+                if (userId) {
+                    query.userId = userId;
+                }
+                // ALL PROMPTS (PUBLIC PAGE)
+                else {
+                    query = {
+                        visibility: "Public",
+                        status: "approved",
+                    };
                 }
 
+
+               
                 const result = await prompts
                     .find(query)
                     .sort({ createdAt: -1 })
@@ -56,9 +68,28 @@ async function run() {
 
                 res.send(result);
             } catch (error) {
-                res.status(500).send({ success: false, message: error.message });
+                res.status(500).send({
+                    success: false,
+                    message: error.message,
+                });
             }
         });
+
+         // my prompt data 
+                app.get("/api/my-prompts", async (req, res) => {
+                    try {
+                        const { userId } = req.query;
+
+                        const result = await prompts
+                            .find({ userId })
+                            .sort({ createdAt: -1 })
+                            .toArray();
+
+                        res.send(result);
+                    } catch (error) {
+                        res.status(500).send(error.message);
+                    }
+                });
 
         // GET SINGLE PROMPT
         app.get("/api/prompts/:id", async (req, res) => {
@@ -127,6 +158,81 @@ async function run() {
                 });
             }
         });
+
+
+        // UPDATE PROMPT
+        app.patch("/api/prompts/:id", async (req, res) => {
+            try {
+                const { id } = req.params;
+                const updatedData = req.body;
+
+                const allowedFields = [
+                    "title",
+                    "description",
+                    "content",
+                    "category",
+                    "tool",
+                    "tags",
+                    "difficulty",
+                    "visibility"
+                ];
+
+                const safeUpdate = {};
+
+                allowedFields.forEach((key) => {
+                    if (updatedData[key] !== undefined) {
+                        safeUpdate[key] = updatedData[key];
+                    }
+                });
+
+                const result = await prompts.updateOne(
+                    { _id: new ObjectId(id) },
+                    {
+                        $set: {
+                            ...safeUpdate,
+                            updatedAt: new Date(),
+                        },
+                    }
+                );
+
+                res.send({
+                    success: true,
+                    message: "Prompt updated successfully",
+                    result,
+                });
+            } catch (error) {
+                res.status(500).send({
+                    success: false,
+                    message: error.message,
+                });
+            }
+        });
+
+        // DELETE PROMPT
+        app.delete("/api/prompts/:id", async (req, res) => {
+            try {
+                const { id } = req.params;
+
+                const result = await prompts.deleteOne({
+                    _id: new ObjectId(id),
+                });
+
+                // OPTIONAL: delete related reviews + bookmarks
+                await reviews.deleteMany({ promptId: new ObjectId(id) });
+                await bookmarks.deleteMany({ promptId: id });
+
+                res.send({
+                    success: true,
+                    message: "Prompt deleted successfully",
+                });
+            } catch (error) {
+                res.status(500).send({
+                    success: false,
+                    message: error.message,
+                });
+            }
+        });
+
 
         // COPY COUNT INCREMENT
         app.patch("/api/prompts/:id/copy", async (req, res) => {
