@@ -36,44 +36,29 @@ async function run() {
         const database = client.db("ai_promt_client")
         const prompts = database.collection("prompts");
         const reviews = database.collection("reviews");
+        const bookmarks = database.collection("bookmarks");
 
 
-        app.get("/api/prompts", async (req, res) => {
 
-            const query = {};
-
-            if (req.query.userId) {
-
-                query.userId = req.query.userId;
-
-            }
-
-            const result = await prompts
-
-                .find(query)
-
-                .sort({ createdAt: -1 })
-
-                .toArray();
-
-            res.send(result);
-
-        });
 
         // /api/prompts
         app.get("/api/prompts", async (req, res) => {
-            const query = {};
+            try {
+                const query = {};
 
-            if (req.query.userId) {
-                query.userId = req.query.userId;
+                if (req.query.userId) {
+                    query.userId = req.query.userId;
+                }
+
+                const result = await prompts
+                    .find(query)
+                    .sort({ createdAt: -1 })
+                    .toArray();
+
+                res.send(result);
+            } catch (error) {
+                res.status(500).send({ success: false });
             }
-
-            const result = await prompts
-                .find(query)
-                .sort({ createdAt: -1 })
-                .toArray();
-
-            res.send(result);
         });
 
         app.get('/api/prompts/:id', async (req, res) => {
@@ -110,6 +95,45 @@ async function run() {
                 res.status(500).send({
                     success: false,
                     message: "Failed to fetch reviews",
+                });
+            }
+        });
+
+        // bookmark details
+        app.get("/api/bookmarks", async (req, res) => {
+            try {
+                const { userId } = req.query;
+
+                const result = await bookmarks.aggregate([
+                    {
+                        $match: { userId }
+                    },
+                    {
+                        $addFields: {
+                            promptObjId: {
+                                $toObjectId: "$promptId"
+                            }
+                        }
+                    },
+                    {
+                        $lookup: {
+                            from: "prompts",
+                            localField: "promptObjId",
+                            foreignField: "_id",
+                            as: "prompt"
+                        }
+                    },
+                    {
+                        $unwind: "$prompt"
+                    }
+                ]).toArray();
+
+                res.send(result);
+
+            } catch (error) {
+                res.status(500).send({
+                    success: false,
+                    message: error.message
                 });
             }
         });
@@ -195,6 +219,47 @@ async function run() {
             res.send(result);
         });
 
+        // bookmark api
+        app.post("/api/bookmarks", async (req, res) => {
+            try {
+                const { userId, promptId } = req.body;
+
+                const existing = await bookmarks.findOne({ userId, promptId });
+
+                if (existing) {
+                    await bookmarks.deleteOne({ _id: existing._id });
+
+                    await prompts.updateOne(
+                        { _id: new ObjectId(promptId) },
+                        { $inc: { totalBookmarks: -1 } }
+                    );
+
+                    return res.send({ success: true, saved: false });
+                }
+
+                await bookmarks.insertOne({
+                    userId,
+                    promptId,
+                    createdAt: new Date()
+                });
+
+                await prompts.updateOne(
+                    { _id: new ObjectId(promptId) },
+                    { $inc: { totalBookmarks: 1 } }
+                );
+
+                res.send({ success: true, saved: true });
+
+            } catch (error) {
+                res.status(500).send({ success: false });
+            }
+        });
+
+
+
+
+
+
         // patch api
         app.patch('/api/prompts/:id/copy', async (req, res) => {
             try {
@@ -212,7 +277,6 @@ async function run() {
 
                 res.json({ copyCount: result.copyCount })
             } catch (err) {
-                console.log(err)
                 res.status(500).json({ error: err.message })
             }
         })
