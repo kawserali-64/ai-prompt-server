@@ -296,6 +296,8 @@ async function run() {
                     totalBookmarks: 0,
                     status: "pending",
                     featured: false,
+                    reports: [],
+                    reportCount: 0,
                     createdAt: new Date(),
                     updatedAt: new Date(),
                 };
@@ -363,6 +365,23 @@ async function run() {
                 const result = await prompts
                     .find()
                     .sort({ createdAt: -1 })
+                    .toArray();
+
+                res.send(result);
+            } catch (error) {
+                res.status(500).send({
+                    success: false,
+                    message: error.message,
+                });
+            }
+        });
+
+        // GET REPORTED PROMPTS (ADMIN)
+        app.get("/api/admin/reported-prompts", async (req, res) => {
+            try {
+                const result = await prompts
+                    .find({ reportCount: { $gt: 0 } })
+                    .sort({ reportCount: -1 })
                     .toArray();
 
                 res.send(result);
@@ -632,6 +651,35 @@ async function run() {
             }
         });
 
+        // admin report clear
+        app.patch("/api/prompts/:id/dismiss-reports", async (req, res) => {
+            try {
+                const { id } = req.params;
+
+                const result = await prompts.updateOne(
+                    { _id: new ObjectId(id) },
+                    {
+                        $set: {
+                            reports: [],
+                            reportCount: 0,
+                            updatedAt: new Date(),
+                        },
+                    }
+                );
+
+                res.send({
+                    success: true,
+                    message: "Reports dismissed",
+                    result,
+                });
+            } catch (error) {
+                res.status(500).send({
+                    success: false,
+                    message: error.message,
+                });
+            }
+        });
+
 
         // REVIEWS GET
         app.get("/api/review", async (req, res) => {
@@ -747,6 +795,37 @@ async function run() {
             }
         });
 
+        // report admin warn -user
+        app.post("/api/admin/warn-user", async (req, res) => {
+            try {
+                const { userId, message } = req.body;
+
+                // simple warning system (user collection update)
+                const result = await userCollection.updateOne(
+                    { _id: new ObjectId(userId) },
+                    {
+                        $push: {
+                            warnings: {
+                                message,
+                                createdAt: new Date(),
+                            },
+                        },
+                    }
+                );
+
+                res.send({
+                    success: true,
+                    message: "User warned successfully",
+                    result,
+                });
+            } catch (error) {
+                res.status(500).send({
+                    success: false,
+                    message: error.message,
+                });
+            }
+        });
+
         // BOOKMARK TOGGLE
         app.post("/api/bookmarks", async (req, res) => {
             try {
@@ -780,6 +859,48 @@ async function run() {
                 );
 
                 res.send({ success: true, saved: true });
+            } catch (error) {
+                res.status(500).send({
+                    success: false,
+                    message: error.message,
+                });
+            }
+        });
+
+        // REPORT PROMPT API
+        app.post("/api/prompts/:id/report", async (req, res) => {
+            try {
+                const { id } = req.params;
+                const { userId, reason, message } = req.body;
+
+                if (!userId || !reason) {
+                    return res.status(400).send({
+                        success: false,
+                        message: "userId and reason are required",
+                    });
+                }
+
+                const reportData = {
+                    userId,
+                    reason,
+                    message: message || "",
+                    createdAt: new Date(),
+                };
+
+                const result = await prompts.updateOne(
+                    { _id: new ObjectId(id) },
+                    {
+                        $push: { reports: reportData },
+                        $inc: { reportCount: 1 },
+                        $set: { updatedAt: new Date() },
+                    }
+                );
+
+                res.send({
+                    success: true,
+                    message: "Report submitted successfully",
+                    result,
+                });
             } catch (error) {
                 res.status(500).send({
                     success: false,
