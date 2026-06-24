@@ -32,6 +32,8 @@ async function run() {
         const prompts = db.collection("prompts");
         const reviews = db.collection("reviews");
         const bookmarks = db.collection("bookmarks");
+        const subscriptions = db.collection("subscriptions");
+        const userCollection = db.collection("user")
 
         console.log("MongoDB Connected");
 
@@ -54,13 +56,13 @@ async function run() {
                 // ALL PROMPTS (PUBLIC PAGE)
                 else {
                     query = {
-                        visibility: "Public",
-                        status: "approved",
+                        // visibility: "Public",
+                        // status: "approved",
                     };
                 }
 
 
-               
+
                 const result = await prompts
                     .find(query)
                     .sort({ createdAt: -1 })
@@ -75,21 +77,173 @@ async function run() {
             }
         });
 
-         // my prompt data 
-                app.get("/api/my-prompts", async (req, res) => {
-                    try {
-                        const { userId } = req.query;
+        // CREATOR ANALYTICS API
+        app.get("/api/creator/analytics", async (req, res) => {
+            try {
+                let { userId } = req.query;
 
-                        const result = await prompts
-                            .find({ userId })
-                            .sort({ createdAt: -1 })
-                            .toArray();
+                if (!userId) {
+                    return res.status(400).send({
+                        success: false,
+                        message: "userId required",
+                    });
+                }
 
-                        res.send(result);
-                    } catch (error) {
-                        res.status(500).send(error.message);
+                // ✅ SAFE STRING CONVERSION (CRITICAL FIX)
+                userId = String(userId);
+
+                // =========================
+                // 1. TOTAL PROMPTS
+                // =========================
+                const totalPrompts = await prompts.countDocuments({ userId });
+
+                // =========================
+                // 2. TOTAL COPIES
+                // =========================
+                const copyAgg = await prompts.aggregate([
+                    { $match: { userId } },
+                    {
+                        $group: {
+                            _id: null,
+                            totalCopies: { $sum: "$copyCount" }
+                        }
+                    }
+                ]).toArray();
+
+                // =========================
+                // 3. TOTAL BOOKMARKS
+                // =========================
+                const bookmarkAgg = await bookmarks.aggregate([
+                    {
+                        $addFields: {
+                            promptObjId: {
+                                $convert: {
+                                    input: "$promptId",
+                                    to: "objectId",
+                                    onError: null,
+                                    onNull: null
+                                }
+                            }
+                        }
+                    },
+                    {
+                        $lookup: {
+                            from: "prompts",
+                            localField: "promptObjId",
+                            foreignField: "_id",
+                            as: "prompt"
+                        }
+                    },
+                    { $unwind: "$prompt" },
+                    { $match: { "prompt.userId": userId } },
+                    { $count: "totalBookmarks" }
+                ]).toArray();
+
+                // =========================
+                // 4. TOTAL REVIEWS
+                // =========================
+                const reviewAgg = await reviews.aggregate([
+                    {
+                        $addFields: {
+                            promptObjId: {
+                                $convert: {
+                                    input: "$promptId",
+                                    to: "objectId",
+                                    onError: null,
+                                    onNull: null
+                                }
+                            }
+                        }
+                    },
+                    {
+                        $lookup: {
+                            from: "prompts",
+                            localField: "promptObjId",
+                            foreignField: "_id",
+                            as: "prompt"
+                        }
+                    },
+                    { $unwind: "$prompt" },
+                    { $match: { "prompt.userId": userId } },
+                    { $count: "totalReviews" }
+                ]).toArray();
+
+                // =========================
+                // 5. PROMPT GROWTH
+                // =========================
+                const promptGrowth = await prompts.aggregate([
+                    { $match: { userId } },
+                    {
+                        $group: {
+                            _id: {
+                                $dateToString: {
+                                    format: "%Y-%m-%d",
+                                    date: "$createdAt"
+                                }
+                            },
+                            count: { $sum: 1 }
+                        }
+                    },
+                    { $sort: { _id: 1 } }
+                ]).toArray();
+
+                // =========================
+                // 6. COPY TREND
+                // =========================
+                const copyTrend = await prompts.aggregate([
+                    { $match: { userId } },
+                    {
+                        $group: {
+                            _id: {
+                                $dateToString: {
+                                    format: "%Y-%m-%d",
+                                    date: "$createdAt"
+                                }
+                            },
+                            totalCopies: { $sum: "$copyCount" }
+                        }
+                    },
+                    { $sort: { _id: 1 } }
+                ]).toArray();
+
+                // =========================
+                // FINAL RESPONSE
+                // =========================
+                res.send({
+                    success: true,
+                    data: {
+                        totalPrompts,
+                        totalCopies: copyAgg[0]?.totalCopies || 0,
+                        totalBookmarks: bookmarkAgg[0]?.totalBookmarks || 0,
+                        totalReviews: reviewAgg[0]?.totalReviews || 0,
+                        promptGrowth,
+                        copyTrend,
                     }
                 });
+
+            } catch (error) {
+                res.status(500).send({
+                    success: false,
+                    message: error.message,
+                });
+            }
+        });
+
+        // my prompt data 
+        app.get("/api/my-prompts", async (req, res) => {
+            try {
+                const { userId } = req.query;
+
+                const result = await prompts
+                    .find({ userId })
+                    .sort({ createdAt: -1 })
+                    .toArray();
+
+                res.send(result);
+            } catch (error) {
+                res.status(500).send(error.message);
+            }
+        });
 
         // GET SINGLE PROMPT
         app.get("/api/prompts/:id", async (req, res) => {
@@ -159,6 +313,66 @@ async function run() {
             }
         });
 
+        // 
+        app.post('/api/subscription', async (req, res) => {
+
+            const { session_id: sessionId, priceId, userId, userEmail } = req.body
+
+            await subscriptions.insertOne({
+                sessionId,
+                priceId,
+                userId,
+                userEmail,
+            })
+
+            const abcd = await userCollection.updateOne(
+                { _id: new ObjectId(userId) },
+                { $set: { plan: 'pro' } }
+            )
+            console.log(abcd);
+            res.json({ message: 'Payment Successful' })
+        })
+
+        // api / user
+        app.get("/api/user", async (req, res) => {
+            try {
+                const { userId } = req.query;
+
+                if (!ObjectId.isValid(userId)) {
+                    return res.status(400).json({ message: "Invalid userId" });
+                }
+
+                const user = await userCollection.findOne({
+                    _id: new ObjectId(userId),
+                });
+
+                if (!user) {
+                    return res.status(404).json({ message: "User not found" });
+                }
+
+                res.send(user);
+            } catch (error) {
+                res.status(500).send({ success: false, message: error.message });
+            }
+        });
+
+        // admin all user api
+        app.get("/api/users", async (req, res) => {
+            try {
+                const result = await userCollection
+                    .find()
+                    .sort({ createdAt: -1 })
+                    .toArray();
+
+                res.send(result);
+            } catch (error) {
+                res.status(500).send({
+                    success: false,
+                    message: error.message,
+                });
+            }
+        });
+
 
         // UPDATE PROMPT
         app.patch("/api/prompts/:id", async (req, res) => {
@@ -174,7 +388,7 @@ async function run() {
                     "tool",
                     "tags",
                     "difficulty",
-                    "visibility"
+                    "visibility",
                 ];
 
                 const safeUpdate = {};
@@ -233,6 +447,27 @@ async function run() {
             }
         });
 
+        // admin user delete api
+        app.delete("/api/users/:id", async (req, res) => {
+            try {
+                const { id } = req.params;
+
+                const result = await userCollection.deleteOne({
+                    _id: new ObjectId(id),
+                });
+
+                res.send({
+                    success: true,
+                    result,
+                });
+            } catch (error) {
+                res.status(500).send({
+                    success: false,
+                    message: error.message,
+                });
+            }
+        });
+
 
         // COPY COUNT INCREMENT
         app.patch("/api/prompts/:id/copy", async (req, res) => {
@@ -245,37 +480,103 @@ async function run() {
                     { returnDocument: "after" }
                 );
 
-                if (!result.value) {
-                    return res.status(404).json({ error: "Prompt not found" });
+                if (!result) {
+                    return res.status(404).json({
+                        success: false,
+                        message: "Prompt not found",
+                    });
                 }
 
                 res.json({
                     success: true,
-                    copyCount: result.value.copyCount,
+                    copyCount: result.copyCount,
                 });
+
             } catch (err) {
-                res.status(500).json({ success: false, message: err.message });
+                res.status(500).json({
+                    success: false,
+                    message: err.message,
+                });
             }
         });
+
+        // admin patch api
+        app.patch("/api/users/:id/role", async (req, res) => {
+            try {
+                const { id } = req.params;
+                const { role } = req.body;
+
+                const result = await userCollection.updateOne(
+                    { _id: new ObjectId(id) },
+                    {
+                        $set: {
+                            role,
+                        },
+                    }
+                );
+
+                res.send({
+                    success: true,
+                    result,
+                });
+            } catch (error) {
+                res.status(500).send({
+                    success: false,
+                    message: error.message,
+                });
+            }
+        });
+
 
         // REVIEWS GET
         app.get("/api/review", async (req, res) => {
             try {
                 const { promptId, userId } = req.query;
 
-                const query = {};
+                const match = {};
 
                 if (promptId) {
-                    query.promptId = new ObjectId(promptId);
+                    match.promptId = new ObjectId(promptId);
                 }
 
                 if (userId) {
-                    query.userId = userId;
+                    match.userId = userId;
                 }
 
                 const result = await reviews
-                    .find(query)
-                    .sort({ createdAt: -1 })
+                    .aggregate([
+                        {
+                            $match: match,
+                        },
+                        {
+                            $lookup: {
+                                from: "prompts",
+                                localField: "promptId",
+                                foreignField: "_id",
+                                as: "prompt",
+                            },
+                        },
+                        {
+                            $unwind: "$prompt",
+                        },
+                        {
+                            $project: {
+                                _id: 1,
+                                rating: 1,
+                                comment: 1,
+                                createdAt: 1,
+                                promptId: 1,
+
+                                promptTitle: "$prompt.title",
+                                aiTool: "$prompt.tool",
+                            },
+                        },
+                        {
+                            $sort: {
+                                createdAt: -1,
+                            },
+                        },
+                    ])
                     .toArray();
 
                 res.send(result);
