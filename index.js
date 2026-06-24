@@ -295,6 +295,7 @@ async function run() {
                     totalReviews: 0,
                     totalBookmarks: 0,
                     status: "pending",
+                    featured: false,
                     createdAt: new Date(),
                     updatedAt: new Date(),
                 };
@@ -356,6 +357,23 @@ async function run() {
             }
         });
 
+        // admin all prompts api
+        app.get("/api/admin/prompts", async (req, res) => {
+            try {
+                const result = await prompts
+                    .find()
+                    .sort({ createdAt: -1 })
+                    .toArray();
+
+                res.send(result);
+            } catch (error) {
+                res.status(500).send({
+                    success: false,
+                    message: error.message,
+                });
+            }
+        });
+
         // admin all user api
         app.get("/api/users", async (req, res) => {
             try {
@@ -412,6 +430,93 @@ async function run() {
                 res.send({
                     success: true,
                     message: "Prompt updated successfully",
+                    result,
+                });
+            } catch (error) {
+                res.status(500).send({
+                    success: false,
+                    message: error.message,
+                });
+            }
+        });
+
+        // all admin prompt approved api
+        app.patch("/api/prompts/:id/approve", async (req, res) => {
+            try {
+                const { id } = req.params;
+
+                const result = await prompts.updateOne(
+                    { _id: new ObjectId(id) },
+                    {
+                        $set: {
+                            status: "approved",
+                            rejectionFeedback: "",
+                            updatedAt: new Date()
+                        },
+                    }
+                );
+
+                res.send({
+                    success: true,
+                    result,
+                });
+            } catch (error) {
+                res.status(500).send({
+                    success: false,
+                    message: error.message,
+                });
+            }
+        });
+
+        // all admin prompt rejected api
+        app.patch("/api/prompts/:id/reject", async (req, res) => {
+            try {
+                const { id } = req.params;
+                const { feedback } = req.body;
+
+                const result = await prompts.updateOne(
+                    { _id: new ObjectId(id) },
+                    {
+                        $set: {
+                            status: "rejected",
+                            rejectionFeedback: feedback,
+                            updatedAt: new Date(),
+
+
+                        },
+                    }
+                );
+
+                res.send({
+                    success: true,
+                    result,
+                });
+            } catch (error) {
+                res.status(500).send({
+                    success: false,
+                    message: error.message,
+                });
+            }
+        });
+
+        // all admin feature api
+        app.patch("/api/prompts/:id/feature", async (req, res) => {
+            try {
+                const { id } = req.params;
+                const { featured } = req.body;
+
+                const result = await prompts.updateOne(
+                    { _id: new ObjectId(id) },
+                    {
+                        $set: {
+                            featured,
+                            updatedAt: new Date(),
+                        },
+                    }
+                );
+
+                res.send({
+                    success: true,
                     result,
                 });
             } catch (error) {
