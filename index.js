@@ -317,24 +317,60 @@ async function run() {
         });
 
         // 
-        app.post('/api/subscription', async (req, res) => {
+        app.post("/api/subscription", async (req, res) => {
+            try {
 
-            const { session_id: sessionId, priceId, userId, userEmail } = req.body
+                const {
+                    session_id: sessionId,
+                    priceId,
+                    userId,
+                    userEmail,
+                } = req.body;
 
-            await subscriptions.insertOne({
-                sessionId,
-                priceId,
-                userId,
-                userEmail,
-            })
+                const existingPayment =
+                    await subscriptions.findOne({
+                        transactionId: sessionId,
+                    });
 
-            const abcd = await userCollection.updateOne(
-                { _id: new ObjectId(userId) },
-                { $set: { plan: 'pro' } }
-            )
-            console.log(abcd);
-            res.json({ message: 'Payment Successful' })
-        })
+                if (existingPayment) {
+                    return res.json({
+                        success: true,
+                        message: "Payment already processed",
+                    });
+                }
+
+                await subscriptions.insertOne({
+                    transactionId: sessionId,
+                    sessionId,
+                    priceId,
+                    userId,
+                    userEmail,
+                    amount: 5,
+                    currency: "USD",
+                    createdAt: new Date(),
+                });
+
+                await userCollection.updateOne(
+                    { _id: new ObjectId(userId) },
+                    {
+                        $set: {
+                            plan: "pro",
+                        },
+                    }
+                );
+
+                res.json({
+                    success: true,
+                    message: "Payment Successful",
+                });
+
+            } catch (error) {
+                res.status(500).json({
+                    success: false,
+                    message: error.message,
+                });
+            }
+        });
 
         // api / user
         app.get("/api/user", async (req, res) => {
@@ -368,6 +404,25 @@ async function run() {
                     .toArray();
 
                 res.send(result);
+            } catch (error) {
+                res.status(500).send({
+                    success: false,
+                    message: error.message,
+                });
+            }
+        });
+
+        // admin all payments
+        app.get("/api/admin/payments", async (req, res) => {
+            try {
+
+                const result = await subscriptions
+                    .find()
+                    .sort({ createdAt: -1 })
+                    .toArray();
+
+                res.send(result);
+
             } catch (error) {
                 res.status(500).send({
                     success: false,
