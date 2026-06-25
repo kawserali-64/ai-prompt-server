@@ -431,6 +431,105 @@ async function run() {
             }
         });
 
+        // Admin analytics api 
+        app.get("/api/admin/analytics", async (req, res) => {
+            try {
+
+                // OVERVIEW CARDS
+
+                const totalUsers = await userCollection.countDocuments();
+
+                const totalPrompts = await prompts.countDocuments();
+
+                const totalReviews = await reviews.countDocuments();
+
+                // Total Copies
+                const copyAgg = await prompts.aggregate([
+                    {
+                        $group: {
+                            _id: null,
+                            totalCopies: {
+                                $sum: {
+                                    $ifNull: ["$copyCount", 0],
+                                },
+                            },
+                        },
+                    },
+                ]).toArray();
+
+                // Total Revenue
+                const revenueAgg = await subscriptions.aggregate([
+                    {
+                        $group: {
+                            _id: null,
+                            totalRevenue: {
+                                $sum: {
+                                    $ifNull: ["$amount", 0],
+                                },
+                            },
+                        },
+                    },
+                ]).toArray();
+
+                // ENGINE STATS
+
+                const engineStats = await prompts.aggregate([
+                    {
+                        $group: {
+                            _id: {
+                                $ifNull: ["$tool", "Unknown"],
+                            },
+
+                            promptCount: {
+                                $sum: 1,
+                            },
+
+                            totalCopies: {
+                                $sum: {
+                                    $ifNull: ["$copyCount", 0],
+                                },
+                            },
+                        },
+                    },
+                    {
+                        $project: {
+                            _id: 0,
+                            engine: "$_id",
+                            promptCount: 1,
+                            totalCopies: 1,
+                        },
+                    },
+                    {
+                        $sort: {
+                            promptCount: -1,
+                        },
+                    },
+                ]).toArray();
+
+                // RESPONSE
+
+                res.send({
+                    success: true,
+
+                    overview: {
+                        totalUsers,
+                        totalPrompts,
+                        totalReviews,
+                        totalCopies: copyAgg[0]?.totalCopies || 0,
+                        totalRevenue: revenueAgg[0]?.totalRevenue || 0,
+                    },
+
+                    engineStats,
+                });
+
+            } catch (error) {
+                res.status(500).send({
+                    success: false,
+                    message: error.message,
+                });
+            }
+        });
+
         // GET REPORTED PROMPTS (ADMIN)
         app.get("/api/admin/reported-prompts", async (req, res) => {
             try {
