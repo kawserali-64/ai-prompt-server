@@ -45,30 +45,82 @@ async function run() {
         // GET ALL PROMPTS
         app.get("/api/prompts", async (req, res) => {
             try {
-                const { userId } = req.query;
+                const {
+                    userId,
+                    search,
+                    category,
+                    tool,
+                    difficulty,
+                    sort,
+                    page = 1,
+                    limit = 9,
+                } = req.query;
 
-                let query = {};
+                const query = {};
 
-                // MY PROMPTS (USER DASHBOARD)
+                // ✅ IMPORTANT: all prompts page এ userId কখনো use করবে না
                 if (userId) {
                     query.userId = userId;
-                }
-                // ALL PROMPTS (PUBLIC PAGE)
-                else {
-                    query = {
-                        // visibility: "Public",
-                        // status: "approved",
-                    };
+                } else {
+                    query.status = "approved";
+                    query.visibility = "Public";
                 }
 
+                // SEARCH
+                if (search) {
+                    query.$or = [
+                        { title: { $regex: search, $options: "i" } },
+                        { tool: { $regex: search, $options: "i" } },
+                        {
+                            tags: {
+                                $elemMatch: {
+                                    $regex: search,
+                                    $options: "i",
+                                },
+                            },
+                        },
+                    ];
+                }
 
+                if (category && category !== "All") {
+                    query.category = category;
+                }
+
+                if (tool && tool !== "All") {
+                    query.tool = tool;
+                }
+
+                if (difficulty && difficulty !== "All") {
+                    query.difficulty = difficulty;
+                }
+
+                // SORT
+                let sortQuery = { createdAt: -1 };
+
+                if (sort === "popular") sortQuery = { averageRating: -1 };
+                if (sort === "copied") sortQuery = { copyCount: -1 };
+                if (sort === "latest") sortQuery = { createdAt: -1 };
+
+                // PAGINATION
+                const pageNum = Number(page);
+                const limitNum = Number(limit);
+                const skip = (pageNum - 1) * limitNum;
+
+                const total = await prompts.countDocuments(query);
 
                 const result = await prompts
                     .find(query)
-                    .sort({ createdAt: -1 })
+                    .sort(sortQuery)
+                    .skip(skip)
+                    .limit(limitNum)
                     .toArray();
 
-                res.send(result);
+                res.send({
+                    prompts: result,
+                    total,
+                    currentPage: pageNum,
+                    totalPages: Math.ceil(total / limitNum),
+                });
             } catch (error) {
                 res.status(500).send({
                     success: false,
