@@ -129,6 +129,31 @@ async function run() {
             }
         });
 
+        // FEATURED PROMPTS 
+        app.get("/api/prompts/featured", async (req, res) => {
+            try {
+                const result = await prompts
+                    .find({
+                        status: "approved",
+                        visibility: "Public",
+                        featured: true,
+                    })
+                    .sort({ createdAt: -1 })
+                    .limit(6)
+                    .toArray();
+
+                res.send({
+                    success: true,
+                    prompts: result,
+                });
+            } catch (error) {
+                res.status(500).send({
+                    success: false,
+                    message: error.message,
+                });
+            }
+        });
+
         // CREATOR ANALYTICS API
         app.get("/api/creator/analytics", async (req, res) => {
             try {
