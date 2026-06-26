@@ -136,9 +136,8 @@ async function run() {
                     .find({
                         status: "approved",
                         visibility: "Public",
-                        featured: true,
                     })
-                    .sort({ createdAt: -1 })
+                    .sort({ copyCount: -1, createdAt: -1 }) // 👈 trending logic
                     .limit(6)
                     .toArray();
 
@@ -153,6 +152,118 @@ async function run() {
                 });
             }
         });
+
+        // TOP CREATORS API
+        app.get("/api/top-creators", async (req, res) => {
+            try {
+                const result = await prompts.aggregate([
+                    {
+                        $addFields: {
+                            userObjId: { $toObjectId: "$userId" }
+                        }
+                    },
+
+                    {
+                        $group: {
+                            _id: "$userObjId",
+                            totalPrompts: { $sum: 1 },
+                            totalCopies: { $sum: { $ifNull: ["$copyCount", 0] } },
+                        }
+                    },
+
+                    {
+                        $lookup: {
+                            from: "user",
+                            localField: "_id",
+                            foreignField: "_id",
+                            as: "user",
+                        }
+                    },
+
+                    { $unwind: "$user" },
+
+                    {
+                        $match: {
+                            "user.role": "Creator"
+                        }
+                    },
+
+                    {
+                        $project: {
+                            _id: 1,
+                            totalPrompts: 1,
+                            totalCopies: 1,
+                            name: "$user.name",
+                            email: "$user.email",
+                            role: "$user.role",
+                            plan: "$user.plan",
+
+                            // 🔥 FIXED PHOTO (SAFE)
+                            photo: {
+                                $ifNull: [
+                                    "$user.photoURL",
+                                    "$user.photo",
+                                    "$user.image",
+                                    null
+                                ]
+                            }
+                        }
+                    },
+
+                    {
+                        $sort: {
+                            totalCopies: -1,
+                            totalPrompts: -1,
+                        }
+                    },
+
+                    { $limit: 6 }
+
+                ]).toArray();
+
+                res.send({
+                    success: true,
+                    creators: result,
+                });
+
+            } catch (error) {
+                res.status(500).send({
+                    success: false,
+                    message: error.message,
+                });
+            }
+        });
+
+        // Trending api 
+        app.get("/api/prompts/trending", async (req, res) => {
+    try {
+        const sevenDaysAgo = new Date();
+        sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+
+        const result = await prompts.find({
+            status: "approved",
+            visibility: "Public",
+            createdAt: { $gte: sevenDaysAgo }
+        })
+        .sort({
+            copyCount: -1,
+            averageRating: -1
+        })
+        .limit(6)
+        .toArray();
+
+        res.send({
+            success: true,
+            prompts: result,
+        });
+
+    } catch (error) {
+        res.status(500).send({
+            success: false,
+            message: error.message,
+        });
+    }
+});
 
         // CREATOR ANALYTICS API
         app.get("/api/creator/analytics", async (req, res) => {
