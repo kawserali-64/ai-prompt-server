@@ -236,34 +236,38 @@ async function run() {
 
         // Trending api 
         app.get("/api/prompts/trending", async (req, res) => {
-    try {
-        const sevenDaysAgo = new Date();
-        sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+            try {
+                const sevenDaysAgo = new Date();
+                sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
 
-        const result = await prompts.find({
-            status: "approved",
-            visibility: "Public",
-            createdAt: { $gte: sevenDaysAgo }
-        })
-        .sort({
-            copyCount: -1,
-            averageRating: -1
-        })
-        .limit(6)
-        .toArray();
+                const result = await prompts.find({
+                    status: "approved",
+                    visibility: "Public",
+                    createdAt: { $gte: sevenDaysAgo },
+                })
+                    .sort({
+                        // 🔥 CORE VIRAL SIGNALS
+                        copyCount: -1,
+                        averageRating: -1,
 
-        res.send({
-            success: true,
-            prompts: result,
+                        // 🔥 IMPORTANT: freshness boost
+                        createdAt: -1,
+                    })
+                    .limit(6)
+                    .toArray();
+
+                res.send({
+                    success: true,
+                    prompts: result,
+                });
+
+            } catch (error) {
+                res.status(500).send({
+                    success: false,
+                    message: error.message,
+                });
+            }
         });
-
-    } catch (error) {
-        res.status(500).send({
-            success: false,
-            message: error.message,
-        });
-    }
-});
 
         // CREATOR ANALYTICS API
         app.get("/api/creator/analytics", async (req, res) => {
@@ -1079,6 +1083,98 @@ async function run() {
                 res.status(500).send({
                     success: false,
                     message: "Failed to fetch reviews",
+                });
+            }
+        });
+
+        // reviews customer api 
+        app.get("/api/customer-reviews", async (req, res) => {
+            try {
+
+                const result = await reviews.aggregate([
+
+                    {
+                        $sort: {
+                            rating: -1,
+                            createdAt: -1,
+                        },
+                    },
+
+                    {
+                        $limit: 6,
+                    },
+
+                    {
+                        $lookup: {
+                            from: "prompts",
+                            localField: "promptId",
+                            foreignField: "_id",
+                            as: "prompt",
+                        },
+                    },
+
+                    {
+                        $unwind: "$prompt",
+                    },
+
+                    {
+                        $addFields: {
+                            userObjId: {
+                                $convert: {
+                                    input: "$userId",
+                                    to: "objectId",
+                                    onError: null,
+                                    onNull: null,
+                                },
+                            },
+                        },
+                    },
+
+                    {
+                        $lookup: {
+                            from: "user",
+                            localField: "userObjId",
+                            foreignField: "_id",
+                            as: "user",
+                        },
+                    },
+
+                    {
+                        $unwind: "$user",
+                    },
+
+                    {
+                        $project: {
+                            _id: 1,
+                            rating: 1,
+                            comment: 1,
+                            createdAt: 1,
+                            promptTitle: "$prompt.title",
+                            aiTool: "$prompt.tool",
+                            userName: "$user.name",
+                            userEmail: "$user.email",
+                            userPhoto: {
+                                $ifNull: [
+                                    "$user.photoURL",
+                                    "$user.photo",
+                                    "$user.image",
+                                    null,
+                                ],
+                            },
+                        },
+                    },
+
+                ]).toArray();
+
+                res.send({
+                    success: true,
+                    reviews: result,
+                });
+
+            } catch (error) {
+                res.status(500).send({
+                    success: false,
+                    message: error.message,
                 });
             }
         });
