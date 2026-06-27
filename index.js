@@ -23,9 +23,12 @@ const client = new MongoClient(uri, {
 });
 
 // MAIN RUN FUNCTION
-async function run() {
-    try {
-        await client.connect();
+// async function run() {
+//     try {
+//         await client.connect();
+client.connect(()=>{
+    console.log('connecting to Mongodb');
+}).catch(console.dir)
 
         const db = client.db("ai_promt_client");
 
@@ -50,6 +53,7 @@ async function run() {
                     search,
                     category,
                     tool,
+                    tags,
                     difficulty,
                     sort,
                     page = 1,
@@ -58,12 +62,10 @@ async function run() {
 
                 const query = {};
 
-                // ✅ IMPORTANT: all prompts page এ userId কখনো use করবে না
                 if (userId) {
                     query.userId = userId;
                 } else {
                     query.status = "approved";
-                    query.visibility = "Public";
                 }
 
                 // SEARCH
@@ -92,6 +94,10 @@ async function run() {
 
                 if (difficulty && difficulty !== "All") {
                     query.difficulty = difficulty;
+                }
+                // tags
+                if (tags && tags !== "All") {
+                    query.tags = tags;
                 }
 
                 // SORT
@@ -1384,16 +1390,17 @@ async function run() {
         });
 
         // MONGO PING
-        await client.db("admin").command({ ping: 1 });
-        console.log("MongoDB Ping Successful");
-    } finally {
-        // keep connection open
-    }
-}
+        // await client.db("admin").command({ ping: 1 });
+//         console.log("MongoDB Ping Successful");
+//     } finally {
+//         // keep connection open
+//     }
+// }
 
-run().catch(console.dir);
+// run().catch(console.dir);
 
 // SERVER START
 app.listen(port, () => {
     console.log(`Server running on port ${port}`);
 });
+module.exports = app;
