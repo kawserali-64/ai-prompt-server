@@ -2,8 +2,13 @@ const express = require("express");
 const cors = require("cors");
 const dotenv = require("dotenv");
 const { MongoClient, ServerApiVersion, ObjectId } = require("mongodb");
+// ai
+const Groq = require("groq-sdk");
 
 dotenv.config();
+const groq = new Groq({
+    apiKey: process.env.GROQ_API_KEY,
+});
 
 const app = express();
 const port = 5000;
@@ -1245,7 +1250,7 @@ app.post("/api/review/add", async (req, res) => {
             userId,
             name: name || "Anonymous",
             email: email || "",
-            
+
             createdAt: new Date(),
         });
 
@@ -1260,9 +1265,9 @@ app.post("/api/review/add", async (req, res) => {
         const averageRating =
             totalReviews > 0
                 ? allReviews.reduce(
-                      (acc, r) => acc + (Number(r.rating) || 0),
-                      0
-                  ) / totalReviews
+                    (acc, r) => acc + (Number(r.rating) || 0),
+                    0
+                ) / totalReviews
                 : 0;
 
         // 6. update prompt
@@ -1407,6 +1412,89 @@ app.post("/api/prompts/:id/report", async (req, res) => {
     }
 });
 
+// AI PROMPT GENERATION 
+app.post("/api/ai/generate-prompt", async (req, res) => {
+    try {
+        const {
+            idea,
+            aiTool = "ChatGPT",
+            category = "General",
+        } = req.body;
+
+        // Validate input
+        if (!idea || !idea.trim()) {
+            return res.status(400).send({
+                success: false,
+                message: "Please provide an idea for the prompt.",
+            });
+        }
+
+        const systemPrompt = `
+You are an expert AI prompt engineer for an AI Prompt Marketplace.
+
+Your job is to create high-quality, practical, and professional prompts.
+
+Rules:
+- Understand the user's idea carefully.
+- Create a detailed and useful prompt.
+- Make the prompt specific, clear, and actionable.
+- Include relevant context, role, task, requirements, constraints, and expected output when appropriate.
+- Optimize the prompt for the selected AI tool.
+- Do not explain your process.
+- Return ONLY the final prompt.
+- Do not add markdown headings like "Generated Prompt".
+- Do not wrap the prompt in quotation marks.
+
+Selected AI Tool: ${aiTool}
+Category: ${category}
+`;
+
+        const userPrompt = `
+Create a professional AI prompt based on this idea:
+
+${idea}
+`;
+
+        const completion = await groq.chat.completions.create({
+            model: "openai/gpt-oss-120b",
+            messages: [
+                {
+                    role: "system",
+                    content: systemPrompt,
+                },
+                {
+                    role: "user",
+                    content: userPrompt,
+                },
+            ],
+            temperature: 0.7,
+            max_tokens: 1500, // max_completion_tokens এর পরিবর্তে max_tokens ব্যবহার করা নিরাপদ
+        });
+
+        const generatedPrompt =
+            completion.choices[0]?.message?.content?.trim();
+
+        if (!generatedPrompt) {
+            return res.status(500).send({
+                success: false,
+                message: "AI could not generate a prompt.",
+            });
+        }
+
+        res.send({
+            success: true,
+            prompt: generatedPrompt,
+        });
+    } catch (error) {
+        console.error("AI Prompt Generator Error:", error);
+
+        res.status(500).send({
+            success: false,
+            message: "Failed to generate prompt.",
+            error: error.message,
+        });
+    }
+});
 // GET BOOKMARKS WITH POPULATED PROMPTS
 app.get("/api/bookmarks", async (req, res) => {
     try {
