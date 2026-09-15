@@ -1495,6 +1495,101 @@ ${idea}
         });
     }
 });
+
+
+app.post("/api/ai/improve-prompt", async (req, res) => {
+    try {
+        const {
+            rawPrompt,
+            aiTool = "ChatGPT",
+        } = req.body;
+
+        // Validate input
+        if (!rawPrompt || !rawPrompt.trim()) {
+            return res.status(400).send({
+                success: false,
+                message: "Please provide a prompt to improve.",
+            });
+        }
+
+        const systemPrompt = `
+You are an elite AI Prompt Engineer and Prompt Optimization Expert.
+
+Your task is to take a raw, basic, vague, or poorly written user prompt and transform it into a significantly better, professional, and highly effective AI prompt.
+
+Rules:
+
+- Understand the user's original intention carefully.
+- Preserve the original goal and meaning of the prompt.
+- Improve clarity, specificity, structure, and usefulness.
+- Add an appropriate expert role when useful.
+- Add relevant context when necessary.
+- Add clear instructions and requirements.
+- Add constraints when they improve the result.
+- Specify the desired output format when appropriate.
+- Remove ambiguity and unnecessary wording.
+- Make the prompt practical and ready to copy and use.
+- Optimize the prompt specifically for the selected AI tool.
+- Do not change the user's intended task.
+- Do not explain your improvement process.
+- Do not provide multiple versions.
+- Return ONLY the final improved prompt.
+- Do not add headings such as "Improved Prompt" or "Optimized Prompt".
+- Do not wrap the prompt in quotation marks.
+
+Selected AI Tool: ${aiTool}
+`;
+
+        const userPrompt = `
+Improve and optimize the following raw prompt:
+
+${rawPrompt.trim()}
+`;
+
+        const completion = await groq.chat.completions.create({
+            model: "openai/gpt-oss-120b",
+
+            messages: [
+                {
+                    role: "system",
+                    content: systemPrompt,
+                },
+                {
+                    role: "user",
+                    content: userPrompt,
+                },
+            ],
+
+            temperature: 0.7,
+            max_tokens: 1500,
+        });
+
+        const improvedPrompt =
+            completion.choices[0]?.message?.content?.trim();
+
+        if (!improvedPrompt) {
+            return res.status(500).send({
+                success: false,
+                message: "AI could not improve the prompt.",
+            });
+        }
+
+        res.status(200).send({
+            success: true,
+            prompt: improvedPrompt,
+        });
+
+    } catch (error) {
+        console.error("AI Prompt Improver Error:", error);
+
+        res.status(500).send({
+            success: false,
+            message: "Failed to improve prompt.",
+            error: error.message,
+        });
+    }
+});
+
 // GET BOOKMARKS WITH POPULATED PROMPTS
 app.get("/api/bookmarks", async (req, res) => {
     try {
