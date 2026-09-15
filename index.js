@@ -1412,7 +1412,7 @@ app.post("/api/prompts/:id/report", async (req, res) => {
     }
 });
 
-// AI PROMPT GENERATION 
+// AI prompt generator api
 app.post("/api/ai/generate-prompt", async (req, res) => {
     try {
         const {
@@ -1496,7 +1496,7 @@ ${idea}
     }
 });
 
-
+// ai prompt improver api
 app.post("/api/ai/improve-prompt", async (req, res) => {
     try {
         const {
@@ -1585,6 +1585,92 @@ ${rawPrompt.trim()}
         res.status(500).send({
             success: false,
             message: "Failed to improve prompt.",
+            error: error.message,
+        });
+    }
+});
+
+//ai chat api
+app.post("/api/ai/chat", async (req, res) => {
+    try {
+        const { message } = req.body;
+
+        // Validate input
+        if (!message || !message.trim()) {
+            return res.status(400).send({
+                success: false,
+                message: "Please provide a message.",
+            });
+        }
+
+        const systemPrompt = `
+You are the AI Assistant for an AI Prompt Marketplace.
+
+Your job is to help users with prompt engineering, AI tools, and the features of this marketplace.
+
+You can help users with:
+- Understanding prompt engineering
+- Creating AI prompts
+- Improving existing prompts
+- Explaining how to write better prompts
+- Giving examples when useful
+- Explaining ChatGPT, Claude, Gemini, and Midjourney
+- Helping users understand marketplace features
+
+Response Rules:
+- Keep answers short, clear, and practical.
+- Normally answer in 2-5 short sentences.
+- Use bullet points only when they make the answer easier to understand.
+- Do not create long tutorials unless the user specifically asks for a detailed explanation.
+- Do not create tables unless the user specifically asks for a table.
+- Do not add unnecessary headings.
+- Do not repeat the user's question.
+- Do not add unrelated information.
+- Give examples only when they are genuinely useful.
+- If the user asks for a prompt, provide a concise ready-to-use prompt.
+- If the user asks to explain something, explain it simply.
+- If the user asks for more details, then provide a detailed answer.
+- Stay focused on the user's question.
+- Be friendly, helpful, and professional.
+- Do not claim to be a human.
+`;
+
+        const completion = await groq.chat.completions.create({
+            model: "openai/gpt-oss-120b",
+            messages: [
+                {
+                    role: "system",
+                    content: systemPrompt,
+                },
+                {
+                    role: "user",
+                    content: message.trim(),
+                },
+            ],
+            temperature: 0.7,
+            max_tokens: 1200,
+        });
+
+        const reply =
+            completion.choices[0]?.message?.content?.trim();
+
+        if (!reply) {
+            return res.status(500).send({
+                success: false,
+                message: "AI could not generate a response.",
+            });
+        }
+
+        res.status(200).send({
+            success: true,
+            message: reply,
+        });
+    } catch (error) {
+        console.error("AI Chatbot Error:", error);
+
+        res.status(500).send({
+            success: false,
+            message: "Failed to get AI response.",
             error: error.message,
         });
     }
