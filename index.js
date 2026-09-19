@@ -247,23 +247,37 @@ app.get("/api/top-creators", async (req, res) => {
 app.get("/api/prompts/trending", async (req, res) => {
     try {
         const sevenDaysAgo = new Date();
-        sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+        sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 30);
 
-        const result = await prompts.find({
+        let result = await prompts.find({
             status: "approved",
             visibility: "Public",
             createdAt: { $gte: sevenDaysAgo },
         })
             .sort({
-                // 🔥 CORE VIRAL SIGNALS
+                
                 copyCount: -1,
                 averageRating: -1,
 
-                // 🔥 IMPORTANT: freshness boost
+               
                 createdAt: -1,
             })
             .limit(6)
             .toArray();
+
+        if (result.length === 0) {
+            result = await prompts.find({
+                status: "approved",
+                visibility: "Public"
+            })
+                .sort({
+                    copyCount: -1,
+                    averageRating: -1,
+                    createdAt: -1,
+                })
+                .limit(6)
+                .toArray();
+        }
 
         res.send({
             success: true,
@@ -277,7 +291,6 @@ app.get("/api/prompts/trending", async (req, res) => {
         });
     }
 });
-
 // CREATOR ANALYTICS API
 app.get("/api/creator/analytics", async (req, res) => {
     try {
