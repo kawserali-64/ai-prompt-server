@@ -11,12 +11,18 @@ const groq = new Groq({
     apiKey: process.env.GROQ_API_KEY,
 });
 
-const generatePromptSchema = z.object({ idea: z .string() .trim() .min(10, "Please provide an idea with at least 10 characters."), aiTool: z.string().optional().default("ChatGPT"), category: z.string().optional().default("General"), });
+const generatePromptSchema = z.object({ idea: z.string().trim().min(10, "Please provide an idea with at least 10 characters."), aiTool: z.string().optional().default("ChatGPT"), category: z.string().optional().default("General"), });
+
 
 const improvePromptSchema = z.object({
-    rawPrompt: z.string().trim().min(1, "Please provide a prompt to improve."),
+    rawPrompt: z
+        .string()
+        .trim()
+        .min(10, "Please provide a prompt with at least 10 characters."),
     aiTool: z.string().optional().default("ChatGPT"),
 });
+
+
 
 const app = express();
 const port = 5000;
@@ -263,11 +269,11 @@ app.get("/api/prompts/trending", async (req, res) => {
             createdAt: { $gte: sevenDaysAgo },
         })
             .sort({
-                
+
                 copyCount: -1,
                 averageRating: -1,
 
-               
+
                 createdAt: -1,
             })
             .limit(6)
@@ -1435,19 +1441,19 @@ app.post("/api/prompts/:id/report", async (req, res) => {
 
 // AI prompt generator api
 app.post("/api/ai/generate-prompt", async (req, res) => {
-try {
-const validation = generatePromptSchema.safeParse(req.body);
+    try {
+        const validation = generatePromptSchema.safeParse(req.body);
 
-    if (!validation.success) {
-        return res.status(400).send({
-            success: false,
-            message: validation.error.issues[0].message,
-        });
-    }
+        if (!validation.success) {
+            return res.status(400).send({
+                success: false,
+                message: validation.error.issues[0].message,
+            });
+        }
 
-    const { idea, aiTool, category } = validation.data;
+        const { idea, aiTool, category } = validation.data;
 
-    const systemPrompt = `
+        const systemPrompt = `
 
 You are an expert AI prompt engineer for an AI Prompt Marketplace.
 
@@ -1471,7 +1477,7 @@ Category: ${category}
 
 `;
 
-    const userPrompt = `
+        const userPrompt = `
 
 Create a professional AI prompt based on this idea:
 
@@ -1479,63 +1485,61 @@ ${idea}
 
 `;
 
-    const completion = await groq.chat.completions.create({
-        model: "openai/gpt-oss-120b",
-        messages: [
-            {
-                role: "system",
-                content: systemPrompt,
-            },
-            {
-                role: "user",
-                content: userPrompt,
-            },
-        ],
-        temperature: 0.7,
-        max_tokens: 1500,
-    });
+        const completion = await groq.chat.completions.create({
+            model: "openai/gpt-oss-120b",
+            messages: [
+                {
+                    role: "system",
+                    content: systemPrompt,
+                },
+                {
+                    role: "user",
+                    content: userPrompt,
+                },
+            ],
+            temperature: 0.7,
+            max_tokens: 1500,
+        });
 
-    const generatedPrompt =
-        completion.choices[0]?.message?.content?.trim();
+        const generatedPrompt =
+            completion.choices[0]?.message?.content?.trim();
 
-    if (!generatedPrompt) {
-        return res.status(500).send({
+        if (!generatedPrompt) {
+            return res.status(500).send({
+                success: false,
+                message: "AI could not generate a prompt.",
+            });
+        }
+
+        res.send({
+            success: true,
+            prompt: generatedPrompt,
+        });
+    } catch (error) {
+        console.error("AI Prompt Generator Error:", error);
+
+        res.status(500).send({
             success: false,
-            message: "AI could not generate a prompt.",
+            message: "Failed to generate prompt.",
+            error: error.message,
         });
     }
-
-    res.send({
-        success: true,
-        prompt: generatedPrompt,
-    });
-} catch (error) {
-    console.error("AI Prompt Generator Error:", error);
-
-    res.status(500).send({
-        success: false,
-        message: "Failed to generate prompt.",
-        error: error.message,
-    });
-}
 
 });
 
 // ai prompt improver api
 app.post("/api/ai/improve-prompt", async (req, res) => {
     try {
-        const {
-            rawPrompt,
-            aiTool = "ChatGPT",
-        } = req.body;
+        const validation = improvePromptSchema.safeParse(req.body);
 
-        // Validate input
-        if (!rawPrompt || !rawPrompt.trim()) {
+        if (!validation.success) {
             return res.status(400).send({
                 success: false,
-                message: "Please provide a prompt to improve.",
+                message: validation.error.issues[0].message,
             });
         }
+
+        const { rawPrompt, aiTool } = validation.data;
 
         const systemPrompt = `
 You are an elite AI Prompt Engineer and Prompt Optimization Expert.
@@ -1568,12 +1572,11 @@ Selected AI Tool: ${aiTool}
         const userPrompt = `
 Improve and optimize the following raw prompt:
 
-${rawPrompt.trim()}
+${rawPrompt}
 `;
 
         const completion = await groq.chat.completions.create({
             model: "openai/gpt-oss-120b",
-
             messages: [
                 {
                     role: "system",
@@ -1584,7 +1587,6 @@ ${rawPrompt.trim()}
                     content: userPrompt,
                 },
             ],
-
             temperature: 0.7,
             max_tokens: 1500,
         });
@@ -1603,7 +1605,6 @@ ${rawPrompt.trim()}
             success: true,
             prompt: improvedPrompt,
         });
-
     } catch (error) {
         console.error("AI Prompt Improver Error:", error);
 
@@ -1614,6 +1615,8 @@ ${rawPrompt.trim()}
         });
     }
 });
+
+
 
 //ai chat api
 app.post("/api/ai/chat", async (req, res) => {
